@@ -2,6 +2,7 @@
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
 #include <avr/sleep.h>
+#include <avr/eeprom.h>
 #define F_CPU 3333333
 #include <util/delay.h>
 #include <stdio.h>
@@ -19,10 +20,13 @@
 #define MAX_POS 450
 #define MIN_POS -90
 
+#define POSITION_EEADDR 0
+
 volatile uint8_t step_flag;
 volatile uint8_t process_usart_flag;
 volatile uint8_t timeout_flag;
 volatile uint8_t rot_flag;
+volatile uint8_t poweroff_flag;
 volatile uint8_t rx_ptr;
 volatile uint8_t timeout;
 volatile char rx_buff[30];
@@ -65,6 +69,11 @@ uint16_t measure_temperature() {
   return temp;
 }
 
+ISR(BOD_VLM_vect) {
+
+  RotStop(); // just in case
+  poweroff_flag = 0x01;
+}
 
 ISR(RTC_PIT_vect) { // 1 Hz
   RTC.PITINTFLAGS = 0x01; // clear flag
@@ -116,24 +125,29 @@ ISR (USART0_RXC_vect) {
 }
 
 void main () {
-  char buffer[30];
-  int16_t position, target_position;
-  uint8_t direction, ang;
+  char buffer[50];
+  int16_t position, target_position, ang;
+  uint8_t direction;
 
   static const char string_start[] PROGMEM = "\n*******\nRotor control by SM6VFZ\n\n";
-  static const char string_timeout[] PROGMEM = "\nTimeout, No feedback!\n\n";
+  static const char string_timeout[] PROGMEM = "\nTimeout, No feedback!\n";
   static const char string_temperature[] PROGMEM = "\nTemperature: ";
-  static const char string_step_too_small[] PROGMEM = "\nStep too small. \n\n";
+  static const char string_step_too_small[] PROGMEM = "\nStep too small.";
   static const char string_pos[] PROGMEM = "Position: ";
-  static const char string_quit[] PROGMEM = "\n***** Good night. *****\n";
   static const char string_forcing[] PROGMEM = "-> Forcing pos to ";
   static const char string_degrees[] PROGMEM = " deg";
   static const char string_stopping[] PROGMEM = "Stopping at ";
+  static const char string_save[] PROGMEM = "Saving position to EEPROM.";
+  static const char string_load[] PROGMEM = "(Re)loading position from EEPROM.";
+  static const char string_quit[] PROGMEM = "\n***** Good night. *****";
   
   PORTA.DIR = LED_pin; // outputs
   PORTB.DIR = TXD_pin;
   PORTA.PIN7CTRL = 0x04; // digital input disable for AINP0/PA7
 
+  BOD.VLMCTRLA = 0x02; // VLM 25% over BOD
+  BOD.INTCTRL = 0x01;  // VLM INT when voltage crosses from above
+  
   /*
   VREF.CTRLA = 0b00000010; // 2.5V for DAC0 and AC0
   AC0.MUXCTRLA = 0b00000010; // Use VREF for neg input
@@ -148,6 +162,8 @@ void main () {
 
   ADC0.CTRLA = 0b00000001; // ADC enable at 10 bits resolution
   ADC0.CTRLC = 0x01; // int ref, ./4 prescaler
+  ADC0.CTRLD = 0b10000000; // 128 CLK_ADC INITDLY
+  ADC0.SAMPCTRL = 0b00001000; // 32 samplen????
   VREF.CTRLA = 0b00110000; // 4.3V ref
 
   USART0.BAUD = 1389;  // 9600 baud for 3.33 MHz and normal mode
@@ -162,6 +178,7 @@ void main () {
   RTC.PITCTRLA = 0b01110001; // Enable, interrupt after 32768 cycles => 1Hz
 
   rx_ptr=0;
+  position = eeprom_read_word(POSITION_EEADDR);
   
   strcpy_P(buffer, string_start);
   USART_Transmit_String(buffer);
@@ -183,11 +200,21 @@ void main () {
   step_flag = 0x00;
   process_usart_flag = 0x00;
   timeout_flag = 0x00;
+  poweroff_flag = 0x00;
   
   sei();
    
   while(1) {
-    if(step_flag) {
+    if(poweroff_flag) {
+      USART_Transmit_String("aaaa");
+      cli();
+      //eeprom_write_word(POSITION_EEADDR,position);
+      strcpy_P(buffer, string_quit);
+      USART_Transmit_String(buffer);
+      _delay_ms(2000);
+      sei();
+    }
+    else if(step_flag) {
       step_flag = 0x00;
       _delay_ms(1);
       if ((direction == CW) && (PORTA.IN & PULSE)) { // Low-to-high
@@ -242,7 +269,7 @@ void main () {
       }
       else if (strncmp((const char *)rx_buff,"r ",2)==0) {
 	if(sscanf((const char *)rx_buff+2,"%d",&ang)) {
-	  if ((ang - 3 < position) && (position < ang + 3)) {
+	  if ((ang > (position - 3)) && (ang < (position + 3))) {
  	    strcpy_P(buffer, string_step_too_small);
 	    USART_Transmit_String(buffer);
 	  }
@@ -267,8 +294,19 @@ void main () {
 	  USART_Transmit_String(buffer);
 	  strcpy_P(buffer, string_degrees);
 	  USART_Transmit_String(buffer);
-	  USART_Transmit_String("\n> ");
 	}
+      }
+      else if (strncmp((const char *)rx_buff,"load",4)==0) {
+	RotStop(); // just in case
+	strcpy_P(buffer, string_load);
+	USART_Transmit_String(buffer);
+	position=eeprom_read_word(POSITION_EEADDR);
+      }
+      else if (strncmp((const char *)rx_buff,"save",4)==0) {
+	RotStop(); // just in case
+	strcpy_P(buffer, string_save);
+	USART_Transmit_String(buffer);
+	eeprom_write_word(POSITION_EEADDR,position);
       }
       else if (strncmp((const char *)rx_buff,"d",1)==0) {
 	strcpy_P(buffer, string_pos);
@@ -288,7 +326,7 @@ void main () {
 	USART_Transmit_String(buffer);
       }
       else {
-	USART_Transmit_String("?\n> ");
+	USART_Transmit_String("?");
       }
       USART_Transmit_String("\n> ");
       memset((char *)rx_buff,'\0',30); 
