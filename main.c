@@ -198,7 +198,16 @@ void main () {
   AC0.INTCTRL = 0x01; // enable interrupt
   AC0.CTRLA = 0b00100001; // int at neg edge, no hyst, enable
 
-  USART0.BAUD = 1389;  // 9600 baud for 3.33 MHz and normal mode
+  //USART0.BAUD = 1389;  // 9600 baud for 3.33 MHz and normal mode
+
+  /* Baud rate compensated with factory stored frequency error */
+  int8_t sigrow_val = SIGROW.OSC20ERR5V;
+  int32_t baud_reg_val = (int32_t)1389;
+
+  baud_reg_val *= (1024 + sigrow_val);
+  baud_reg_val /= 1024;
+  USART0.BAUD = (int16_t) baud_reg_val;
+
   USART0.CTRLA = 0b10000000; // RXCIE
   USART0.CTRLB = 0b11000000; // RX+TX enable
 
@@ -259,7 +268,7 @@ void main () {
     else if(step_flag) {
       cli();
       step_flag = 0x00;
-      _delay_ms(50);
+      _delay_ms(5);
       if ((direction == CW) && (PORTA.IN & PULSE_pin)) { // Low-to-high
 	timeout = 0;
 	position++;
