@@ -13,7 +13,9 @@
 #define TXD_pin PIN2_bm
 #define RXD_pin PIN3_bm
 #define COMP_pin PIN7_bm
-#define PULSE PIN1_bm
+#define PULSE_pin PIN1_bm
+#define RELA_pin PIN5_bm
+#define RELB_pin PIN6_bm
 
 #define CW 0x01
 #define CCW 0x02
@@ -33,12 +35,22 @@ volatile char rx_buff[30];
 
 void RotStop() {
   rot_flag = 0x00;
+  PORTA.OUT &= ~RELA_pin;
+  PORTA.OUT &= ~RELB_pin;
   PORTA.OUT &= ~LED_pin;
 }
 
 void RotStart(uint8_t dir) {
   rot_flag = 0x01;
   timeout = 0;
+  if (dir == CW) {
+    PORTA.OUT |= RELA_pin;
+    PORTA.OUT &= ~RELB_pin;
+  }
+  else if (dir == CCW) {
+    PORTA.OUT |= RELB_pin;
+    PORTA.OUT &= ~RELA_pin;
+  }    
   PORTA.OUT |= LED_pin;
 }
 
@@ -56,9 +68,8 @@ uint16_t measure_temperature() {
   int8_t sigrow_offset = SIGROW.TEMPSENSE1;
   uint8_t sigrow_gain = SIGROW.TEMPSENSE0;
   uint32_t temp;
-  VREF.CTRLA = 0x10; // 1.1V ref
-  ADC0.MUXPOS = 0x1e; // tempsense
-  _delay_ms(1);
+  //ADC0.MUXPOS = 0x1e; // tempsense
+  //_delay_ms(1);
   ADC0.COMMAND = 0x01;
   while (ADC0.COMMAND);
   // Now convert as per datasheet
@@ -69,11 +80,21 @@ uint16_t measure_temperature() {
   return temp;
 }
 
+ISR(AC0_AC_vect) {
+
+  RotStop(); // just in case
+  AC0.STATUS |= 0x01; // Clear int flag
+  if (!(AC0.STATUS & 0b00010000)) 
+    poweroff_flag = 0x01;
+    
+}
+
 ISR(BOD_VLM_vect) {
 
   RotStop(); // just in case
-  poweroff_flag = 0x01;
+  poweroff_flag = 0x02;
 }
+
 
 ISR(RTC_PIT_vect) { // 1 Hz
   RTC.PITINTFLAGS = 0x01; // clear flag
@@ -91,8 +112,8 @@ ISR(RTC_PIT_vect) { // 1 Hz
 
 ISR(PORTA_PORT_vect) {
   
-  if(PORTA.INTFLAGS & PULSE) {
-    PORTA.INTFLAGS |= PULSE; // Clear flag
+  if(PORTA.INTFLAGS & PULSE_pin) {
+    PORTA.INTFLAGS |= PULSE_pin; // Clear flag
     step_flag = 0x01;
   }  
 }
@@ -139,11 +160,16 @@ void main () {
   static const char string_stopping[] PROGMEM = "Stopping at ";
   static const char string_save[] PROGMEM = "Saving position to EEPROM.";
   static const char string_load[] PROGMEM = "(Re)loading position from EEPROM.";
+  static const char string_quit_ac[] PROGMEM = "\n*AC*";
+  static const char string_quit_vlm[] PROGMEM = "\n*VLM*";
   static const char string_quit[] PROGMEM = "\n***** Good night. *****";
   
-  PORTA.DIR = LED_pin; // outputs
+  PORTA.DIR = LED_pin | RELA_pin | RELB_pin; // outputs
   PORTB.DIR = TXD_pin;
   PORTA.PIN7CTRL = 0x04; // digital input disable for AINP0/PA7
+  PORTA.PIN1CTRL = 0x01; // int at both edges
+    
+  RotStop();
 
   BOD.VLMCTRLA = 0x02; // VLM 25% over BOD
   BOD.INTCTRL = 0x01;  // VLM INT when voltage crosses from above
@@ -160,11 +186,17 @@ void main () {
   TCA0.SINGLE.CTRLA = 0x01; // Div 1, enable
   */
 
-  ADC0.CTRLA = 0b00000001; // ADC enable at 10 bits resolution
+  VREF.CTRLA = 0b00010010; // 1.1V for ADC, 2.5V for comparator
+  
   ADC0.CTRLC = 0x01; // int ref, ./4 prescaler
   ADC0.CTRLD = 0b10000000; // 128 CLK_ADC INITDLY
-  ADC0.SAMPCTRL = 0b00001000; // 32 samplen????
-  VREF.CTRLA = 0b00110000; // 4.3V ref
+  ADC0.SAMPCTRL = 0b00001000; // 32 1/f samplen -> 38.4us
+  ADC0.MUXPOS = 0x1e; // tempsense
+  ADC0.CTRLA = 0b00000001; // ADC enable at 10 bits resolution
+
+  AC0.MUXCTRLA = 0x02; // VREF to NEGIN
+  AC0.INTCTRL = 0x01; // enable interrupt
+  AC0.CTRLA = 0b00100001; // int at neg edge, no hyst, enable
 
   USART0.BAUD = 1389;  // 9600 baud for 3.33 MHz and normal mode
   USART0.CTRLA = 0b10000000; // RXCIE
@@ -201,34 +233,54 @@ void main () {
   process_usart_flag = 0x00;
   timeout_flag = 0x00;
   poweroff_flag = 0x00;
+
+  AC0.STATUS |= 0x01; // Clear int flag
   
   sei();
    
   while(1) {
     if(poweroff_flag) {
-      USART_Transmit_String("aaaa");
       cli();
-      //eeprom_write_word(POSITION_EEADDR,position);
+      eeprom_write_word(POSITION_EEADDR,position);
+      if (poweroff_flag == 0x01) { // AC 
+	strcpy_P(buffer, string_quit_ac);
+      }
+      else if (poweroff_flag == 0x02) { // VLM
+	strcpy_P(buffer, string_quit_vlm);
+	BOD.INTFLAGS = 0x00;
+      }
+      USART_Transmit_String(buffer);
       strcpy_P(buffer, string_quit);
       USART_Transmit_String(buffer);
-      _delay_ms(2000);
-      sei();
+      _delay_ms(10000);
+      poweroff_flag = 0x00;
+      sei(); // if we wake up again
     }
     else if(step_flag) {
+      cli();
       step_flag = 0x00;
-      _delay_ms(1);
-      if ((direction == CW) && (PORTA.IN & PULSE)) { // Low-to-high
+      _delay_ms(50);
+      if ((direction == CW) && (PORTA.IN & PULSE_pin)) { // Low-to-high
 	timeout = 0;
 	position++;
-	if((position > MAX_POS) || (position>(target_position-2)))
+	USART_Transmit_String("+");
+	if(rot_flag && ((position > MAX_POS) || (position>(target_position-2)))) {
 	  RotStop();
+	  USART_Transmit_String("\n>");
+	}
       }
-      else if ((direction == CCW) && !(PORTA.IN & PULSE)) { //High-to-low
-	position--;
+      else if ((direction == CCW) && !(PORTA.IN & PULSE_pin)) { //High-to-low
 	timeout = 0;
-	if ((position < MIN_POS) || (position<(target_position+2)))
+	position--;
+	USART_Transmit_String("-");
+	timeout = 0;
+	if (rot_flag && ((position < MIN_POS) || (position<(target_position+2)))) {
 	  RotStop();
+	  USART_Transmit_String("\n>");
+	}
       }
+      PORTA.INTFLAGS |= PULSE_pin; // Clear flag, if set again
+      sei();
     }
     else if (process_usart_flag) {
       rx_ptr=0;
@@ -247,7 +299,8 @@ void main () {
          if(sscanf((const char *)rx_buff+3,"%d",&ang)) {
             if (ang > 3) {
 	      target_position=position+ang;
-	      RotStart(CW);
+	      direction = CW;
+	      RotStart(direction);
 	    }
 	    else {
 	       strcpy_P(buffer, string_step_too_small);
@@ -259,7 +312,8 @@ void main () {
          if(sscanf((const char *)rx_buff+3,"%d",&ang)) {
             if (ang > 3) {
 	      target_position=position-ang;
-	      RotStart(CCW);
+	      direction=CCW;
+	      RotStart(direction);
 	    }
 	    else {
 	       strcpy_P(buffer, string_step_too_small);
@@ -276,11 +330,13 @@ void main () {
 	  else {
 	    if (ang > position) {
 	      target_position = ang;
-	      RotStart(CW);
+	      direction=CW;
+	      RotStart(direction);
 	    }
 	    else if (ang < position) {
 	      target_position = ang;
-	      RotStart(CCW);
+	      direction=CCW;
+	      RotStart(direction);
 	    }
 	  }
 	}
