@@ -152,17 +152,18 @@ void main () {
 
   static const char string_start[] PROGMEM = "\n*******\nRotor control by SM6VFZ\n\n";
   static const char string_timeout[] PROGMEM = "\nTimeout, No feedback!\n";
-  static const char string_temperature[] PROGMEM = "\nTemperature: ";
-  static const char string_step_too_small[] PROGMEM = "\nStep too small.";
+  static const char string_temperature[] PROGMEM = "Temperature: ";
+  static const char string_step_too_small[] PROGMEM = "Step too small.";
   static const char string_pos[] PROGMEM = "Position: ";
   static const char string_forcing[] PROGMEM = "-> Forcing pos to ";
   static const char string_degrees[] PROGMEM = " deg";
   static const char string_stopping[] PROGMEM = "Stopping at ";
+  static const char string_starting[] PROGMEM = "Starting rot..";
   static const char string_save[] PROGMEM = "Saving position to EEPROM.";
   static const char string_load[] PROGMEM = "(Re)loading position from EEPROM.";
   static const char string_quit_ac[] PROGMEM = "\n*AC*";
   static const char string_quit_vlm[] PROGMEM = "\n*VLM*";
-  static const char string_quit[] PROGMEM = "\n***** Good night. *****";
+  static const char string_quit[] PROGMEM = "\n*** Good night. ***";
   
   PORTA.DIR = LED_pin | RELA_pin | RELB_pin; // outputs
   PORTB.DIR = TXD_pin;
@@ -273,7 +274,7 @@ void main () {
 	timeout = 0;
 	position++;
 	USART_Transmit_String("+");
-	if(rot_flag && ((position > MAX_POS) || (position>(target_position-2)))) {
+	if(rot_flag && ((position > MAX_POS) || (position >= target_position))) {
 	  RotStop();
 	  USART_Transmit_String("\n>");
 	}
@@ -283,7 +284,7 @@ void main () {
 	position--;
 	USART_Transmit_String("-");
 	timeout = 0;
-	if (rot_flag && ((position < MIN_POS) || (position<(target_position+2)))) {
+	if (rot_flag && ((position < MIN_POS) || (position <= target_position))) {
 	  RotStop();
 	  USART_Transmit_String("\n>");
 	}
@@ -310,6 +311,8 @@ void main () {
 	      target_position=position+ang;
 	      direction = CW;
 	      RotStart(direction);
+	      strcpy_P(buffer, string_starting);
+	      USART_Transmit_String(buffer);
 	    }
 	    else {
 	       strcpy_P(buffer, string_step_too_small);
@@ -323,6 +326,8 @@ void main () {
 	      target_position=position-ang;
 	      direction=CCW;
 	      RotStart(direction);
+	      strcpy_P(buffer, string_starting);
+	      USART_Transmit_String(buffer);
 	    }
 	    else {
 	       strcpy_P(buffer, string_step_too_small);
@@ -347,6 +352,8 @@ void main () {
 	      direction=CCW;
 	      RotStart(direction);
 	    }
+	    strcpy_P(buffer, string_starting);
+	    USART_Transmit_String(buffer);
 	  }
 	}
       }
