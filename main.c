@@ -1,3 +1,16 @@
+/* Rotor control for Spid rotors by SM6VFZ
+
+Commands:
+r x   --- Rotate to position x degrees
+r+ x  --- Rotate clock-wise for x degrees
+r- x  --- Rotate counter-clock-wise for deg degrees
+d     --- Print current postion
+s     --- Stop ongoing rotation
+cal x --- Set current position to x degrees (without rotating) 
+temp  --- Measure and print current temperature
+ 
+*/
+
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
@@ -96,12 +109,12 @@ ISR(BOD_VLM_vect) {
 }
 
 
-ISR(RTC_PIT_vect) { // 1 Hz
+ISR(RTC_PIT_vect) { // 2 Hz
   RTC.PITINTFLAGS = 0x01; // clear flag
   //PORTA.OUTTGL = LED_pin;
   if (rot_flag) {
     timeout ++;
-    if(timeout>3) {
+    if(timeout>4) {
       RotStop();
       timeout_flag = 0x01;
     }
@@ -171,7 +184,9 @@ void main () {
   PORTA.PIN1CTRL = 0x01; // int at both edges
     
   RotStop();
-
+  
+  _delay_ms(1000); // To wait for voltages to stabilize
+  
   BOD.VLMCTRLA = 0x02; // VLM 25% over BOD
   BOD.INTCTRL = 0x01;  // VLM INT when voltage crosses from above
   
@@ -195,6 +210,8 @@ void main () {
   ADC0.MUXPOS = 0x1e; // tempsense
   ADC0.CTRLA = 0b00000001; // ADC enable at 10 bits resolution
 
+  measure_temperature();  // Seems necessary to get rid of first garbage values
+
   AC0.MUXCTRLA = 0x02; // VREF to NEGIN
   AC0.INTCTRL = 0x01; // enable interrupt
   AC0.CTRLA = 0b00100001; // int at neg edge, no hyst, enable
@@ -211,16 +228,16 @@ void main () {
 
   USART0.CTRLA = 0b10000000; // RXCIE
   USART0.CTRLB = 0b11000000; // RX+TX enable
-
+  rx_ptr=0;
+  
   while(RTC.STATUS);
   RTC.CLKSEL = 0x00; // Use 32 kHz from OSC32K
   while(RTC.PITSTATUS);
   RTC.PITINTCTRL = 0x01; // enable interrupt
   while(RTC.PITSTATUS);
-  RTC.PITCTRLA = 0b01110001; // Enable, interrupt after 32768 cycles => 1Hz
+  RTC.PITCTRLA = 0b01101001; // Enable, interrupt after 16384 cycles => 2Hz
 
-  rx_ptr=0;
-  position = eeprom_read_word(POSITION_EEADDR);
+  position = eeprom_read_word(POSITION_EEADDR); // Read out last position
   
   strcpy_P(buffer, string_start);
   USART_Transmit_String(buffer);
@@ -276,7 +293,7 @@ void main () {
 	USART_Transmit_String("+");
 	if(rot_flag && ((position > MAX_POS) || (position >= target_position))) {
 	  RotStop();
-	  USART_Transmit_String("\n>");
+	  USART_Transmit_String("\n> ");
 	}
       }
       else if ((direction == CCW) && !(PORTA.IN & PULSE_pin)) { //High-to-low
@@ -286,7 +303,7 @@ void main () {
 	timeout = 0;
 	if (rot_flag && ((position < MIN_POS) || (position <= target_position))) {
 	  RotStop();
-	  USART_Transmit_String("\n>");
+	  USART_Transmit_String("\n> ");
 	}
       }
       PORTA.INTFLAGS |= PULSE_pin; // Clear flag, if set again
@@ -368,6 +385,8 @@ void main () {
 	  USART_Transmit_String(buffer);
 	}
       }
+      /* Load and save functions only for debug/development */
+      /*   
       else if (strncmp((const char *)rx_buff,"load",4)==0) {
 	RotStop(); // just in case
 	strcpy_P(buffer, string_load);
@@ -380,6 +399,7 @@ void main () {
 	USART_Transmit_String(buffer);
 	eeprom_write_word(POSITION_EEADDR,position);
       }
+      */
       else if (strncmp((const char *)rx_buff,"d",1)==0) {
 	strcpy_P(buffer, string_pos);
 	USART_Transmit_String(buffer);
