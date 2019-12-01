@@ -3,7 +3,7 @@
 Commands:
 r x   --- Rotate to position x degrees
 r+ x  --- Rotate clock-wise for x degrees
-r- x  --- Rotate counter-clock-wise for deg degrees
+r- x  --- Rotate counter-clock-wise for x degrees
 d     --- Print current postion
 s     --- Stop ongoing rotation
 cal x --- Set current position to x degrees (without rotating) 
