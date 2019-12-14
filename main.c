@@ -1,13 +1,15 @@
 /* Rotor control for Spid rotors by SM6VFZ
 
 Commands:
-r x   --- Rotate to position x degrees
-r+ x  --- Rotate clock-wise for x degrees
-r- x  --- Rotate counter-clock-wise for x degrees
-d     --- Print current postion
-s     --- Stop ongoing rotation
-cal x --- Set current position to x degrees (without rotating) 
-temp  --- Measure and print current temperature
+r x     --- Rotate to direction/position x degrees
+r+ x    --- Rotate clock-wise for x degrees
+r- x    --- Rotate counter-clock-wise for x degrees
+d       --- Print current position
+s       --- Stop ongoing rotation
+cal x   --- Set current position to x degrees (without rotating) 
+g on y  --- Turn on output y in {0,1,2,3}
+g off y --- Turn off output y
+temp    --- Measure and print current temperature
  
 */
 
@@ -22,13 +24,17 @@ temp  --- Measure and print current temperature
 #include <stdlib.h>
 #include <string.h>
 
-#define LED_pin PIN4_bm
-#define TXD_pin PIN2_bm
-#define RXD_pin PIN3_bm
-#define COMP_pin PIN7_bm
-#define PULSE_pin PIN1_bm
-#define RELA_pin PIN5_bm
-#define RELB_pin PIN6_bm
+#define LED_pin PIN4_bm // PA4
+#define TXD_pin PIN2_bm // PB2
+#define RXD_pin PIN3_bm // PB3
+#define COMP_pin PIN7_bm // PA7
+#define PULSE_pin PIN1_bm // PA1
+#define RELA_pin PIN5_bm // PA5
+#define RELB_pin PIN6_bm // PA6
+#define GPO0_pin PIN0_bm //PB0
+#define GPO1_pin PIN1_bm //PB1
+#define GPO2_pin PIN2_bm //PA2
+#define GPO3_pin PIN3_bm //PA3
 
 #define CW 0x01
 #define CCW 0x02
@@ -45,6 +51,34 @@ volatile uint8_t poweroff_flag;
 volatile uint8_t rx_ptr;
 volatile uint8_t timeout;
 volatile char rx_buff[30];
+
+uint8_t gpo_on(uint8_t gpo_num) {
+  if (gpo_num == 0)
+    PORTB.OUT |= GPO0_pin;
+  else if (gpo_num == 1)
+    PORTB.OUT |= GPO1_pin;
+  else if (gpo_num == 2)
+    PORTA.OUT |= GPO2_pin;
+  else if (gpo_num == 3)
+    PORTA.OUT |= GPO3_pin;
+  else
+    return 1;
+  return 0;
+}
+
+uint8_t gpo_off(uint8_t gpo_num) {
+  if (gpo_num == 0)
+    PORTB.OUT &= ~GPO0_pin;
+  else if (gpo_num == 1)
+    PORTB.OUT &= ~GPO1_pin;
+  else if (gpo_num == 2)
+    PORTA.OUT &= ~GPO2_pin;
+  else if (gpo_num == 3)
+    PORTA.OUT &= ~GPO3_pin;
+  else
+    return 1;
+  return 0;
+}
 
 void RotStop() {
   rot_flag = 0x00;
@@ -172,36 +206,27 @@ void main () {
   static const char string_degrees[] PROGMEM = " deg";
   static const char string_stopping[] PROGMEM = "Stopping at ";
   static const char string_starting[] PROGMEM = "Starting rot..";
-  static const char string_save[] PROGMEM = "Saving position to EEPROM.";
-  static const char string_load[] PROGMEM = "(Re)loading position from EEPROM.";
+  // static const char string_save[] PROGMEM = "Saving position to EEPROM.";
+  // static const char string_load[] PROGMEM = "(Re)loading position from EEPROM.";
+  static const char string_gpo_on[] PROGMEM = "Turning on output ";
+  static const char string_gpo_off[] PROGMEM = "Turning off output ";
   static const char string_quit_ac[] PROGMEM = "\n*AC*";
   static const char string_quit_vlm[] PROGMEM = "\n*VLM*";
   static const char string_quit[] PROGMEM = "\n*** Good night. ***";
   
-  PORTA.DIR = LED_pin | RELA_pin | RELB_pin; // outputs
-  PORTB.DIR = TXD_pin;
+  PORTA.DIR = LED_pin | RELA_pin | RELB_pin | GPO2_pin | GPO3_pin; // outputs
+  PORTB.DIR = TXD_pin | GPO0_pin | GPO1_pin;
   PORTA.PIN7CTRL = 0x04; // digital input disable for AINP0/PA7
   PORTA.PIN1CTRL = 0x01; // int at both edges
-    
-  RotStop();
-  
+
+  PORTA.OUT = 0x00;
+  PORTB.OUT = 0x00;
+
   _delay_ms(1000); // To wait for voltages to stabilize
   
   BOD.VLMCTRLA = 0x02; // VLM 25% over BOD
   BOD.INTCTRL = 0x01;  // VLM INT when voltage crosses from above
   
-  /*
-  VREF.CTRLA = 0b00000010; // 2.5V for DAC0 and AC0
-  AC0.MUXCTRLA = 0b00000010; // Use VREF for neg input
-  AC0.CTRLA = 0b011100011; // OUTEN (PA5), pos edge, 10mV hyst, AC enable
-  */
-  
-  /*
-  TCA0.SINGLE.PER = 0x0063;
-  TCA0.SINGLE.INTCTRL = 0x01;
-  TCA0.SINGLE.CTRLA = 0x01; // Div 1, enable
-  */
-
   VREF.CTRLA = 0b00010010; // 1.1V for ADC, 2.5V for comparator
   
   ADC0.CTRLC = 0x01; // int ref, ./4 prescaler
@@ -256,6 +281,7 @@ void main () {
   _delay_ms(200);
   PORTA.OUT &= ~LED_pin;
 
+  rot_flag = 0x00;
   step_flag = 0x00;
   process_usart_flag = 0x00;
   timeout_flag = 0x00;
@@ -416,6 +442,41 @@ void main () {
 	USART_Transmit_String(buffer);
 	strcpy_P(buffer, string_degrees);
 	USART_Transmit_String(buffer);
+      }
+      else if (strncmp((const char *)rx_buff,"g ",2)==0) {
+	uint8_t gpo_num;
+	if (strncmp((const char *)rx_buff+2,"on",2)==0) {
+	  if(sscanf((const char *)rx_buff+5,"%d",&gpo_num)) {
+	    if(!gpo_on(gpo_num)) {
+	      strcpy_P(buffer, string_gpo_on);
+	      USART_Transmit_String(buffer);
+	      sprintf(buffer,"%d.",gpo_num);
+	      USART_Transmit_String(buffer);
+	    }
+	    else {
+	      USART_Transmit_String("?");
+	    }
+	  }
+	  else {
+	    USART_Transmit_String("?");
+	  }
+	}
+	else if (strncmp((const char *)rx_buff+2,"off",3)==0) {
+	  if(sscanf((const char *)rx_buff+6,"%d",&gpo_num)) {
+	    if(!gpo_off(gpo_num)) {
+	      strcpy_P(buffer, string_gpo_off);
+	      USART_Transmit_String(buffer);
+	      sprintf(buffer,"%d.",gpo_num);
+	      USART_Transmit_String(buffer);
+	    }
+	    else {
+	      USART_Transmit_String("?");
+	    }
+	  }
+	  else {
+	    USART_Transmit_String("?");
+	  }
+	}
       }
       else {
 	USART_Transmit_String("?");
