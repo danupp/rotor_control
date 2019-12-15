@@ -1,4 +1,5 @@
 EESchema Schematic File Version 4
+LIBS:rotor_control_kicad-cache
 EELAYER 30 0
 EELAYER END
 $Descr A4 11693 8268
@@ -144,17 +145,6 @@ F 3 "~" H 7450 2200 50  0001 C CNN
 	1    7450 2200
 	0    1    1    0   
 $EndComp
-$Comp
-L Relay:DIPxx-1Cxx-51x K1
-U 1 1 5DE484AA
-P 8150 2150
-F 0 "K1" H 8650 2200 50  0000 L CNN
-F 1 "car type relay" H 8600 2100 50  0000 L CNN
-F 2 "" H 8600 2100 50  0001 L CNN
-F 3 "" H 8150 2150 50  0001 C CNN
-	1    8150 2150
-	1    0    0    -1  
-$EndComp
 Wire Wire Line
 	7950 2450 7950 2500
 Wire Wire Line
@@ -271,17 +261,6 @@ F 2 "" H 7450 4950 50  0001 C CNN
 F 3 "~" H 7450 4950 50  0001 C CNN
 	1    7450 4950
 	0    1    1    0   
-$EndComp
-$Comp
-L Relay:DIPxx-1Cxx-51x K2
-U 1 1 5DE6B5C1
-P 8150 4900
-F 0 "K2" H 8750 4900 50  0000 R CNN
-F 1 "car type relay" H 9200 5000 50  0000 R CNN
-F 2 "" H 8600 4850 50  0001 L CNN
-F 3 "" H 8150 4900 50  0001 C CNN
-	1    8150 4900
-	1    0    0    1   
 $EndComp
 Wire Wire Line
 	7950 5200 7950 5250
@@ -663,8 +642,36 @@ Wire Wire Line
 	4700 3550 4850 3550
 Text Notes 2150 2350 0    50   ~ 0
 GPO0...3 are General Purpose Outputs\nthat can be used to control relays etc.
-Text Notes 8650 5150 0    50   ~ 0
-Pin numbers incorrect
-Text Notes 8600 2350 0    50   ~ 0
-Pin numbers incorrect
+$Comp
+L local:relay K1
+U 1 1 5DF6F0C4
+P 8150 2150
+F 0 "K1" H 8580 2150 50  0000 L CNN
+F 1 "relay" H 8580 2105 50  0001 L CNN
+F 2 "" H 8600 2100 50  0001 L CNN
+F 3 "" H 8150 2150 50  0001 C CNN
+	1    8150 2150
+	1    0    0    -1  
+$EndComp
+$Comp
+L local:relay K2
+U 1 1 5DF76911
+P 8150 4900
+F 0 "K2" H 8700 4850 50  0000 R CNN
+F 1 "relay" H 8800 4950 50  0001 R CNN
+F 2 "" H 8600 4850 50  0001 L CNN
+F 3 "" H 8150 4900 50  0001 C CNN
+	1    8150 4900
+	1    0    0    1   
+$EndComp
+Text Notes 8100 1900 0    50   ~ 0
+NO
+Text Notes 8500 1900 0    50   ~ 0
+NC
+Text Notes 8100 5200 0    50   ~ 0
+NO
+Text Notes 8500 5200 0    50   ~ 0
+NC
+Text Notes 8950 5100 0    50   ~ 0
+The two relays should be of car type for\nhigh (tens of amps) DC-current capability.
 $EndSCHEMATC

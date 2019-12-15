@@ -148,8 +148,8 @@ $Comp
 L Relay:DIPxx-1Cxx-51x K1
 U 1 1 5DE484AA
 P 8150 2150
-F 0 "K1" H 8580 2196 50  0000 L CNN
-F 1 "car type relay" H 8580 2105 50  0000 L CNN
+F 0 "K1" H 8650 2200 50  0000 L CNN
+F 1 "car type relay" H 8600 2100 50  0000 L CNN
 F 2 "" H 8600 2100 50  0001 L CNN
 F 3 "" H 8150 2150 50  0001 C CNN
 	1    8150 2150
@@ -638,7 +638,7 @@ Connection ~ 3500 6150
 Wire Wire Line
 	3500 6150 3500 6100
 Text Notes 3950 6100 0    50   ~ 0
-Shut-down and save position to EEPROM\nwhen this node falls below 2.5V
+MCU shuts-down and saves position to\nEEPROM when this node falls below 2.5V
 Wire Wire Line
 	3500 6150 5750 6150
 Wire Wire Line
@@ -663,4 +663,8 @@ Wire Wire Line
 	4700 3550 4850 3550
 Text Notes 2150 2350 0    50   ~ 0
 GPO0...3 are General Purpose Outputs\nthat can be used to control relays etc.
+Text Notes 8650 5150 0    50   ~ 0
+Pin numbers incorrect
+Text Notes 8600 2350 0    50   ~ 0
+Pin numbers incorrect
 $EndSCHEMATC
